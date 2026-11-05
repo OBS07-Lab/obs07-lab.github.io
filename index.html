@@ -88,6 +88,52 @@
   .line small { color: var(--dim); display: block; }
   .links { display: flex; gap: 14px; flex-wrap: wrap; }
   @media (max-width: 700px) { .cards { grid-template-columns: 1fr 1fr; } .cols { grid-template-columns: 1fr; } }
+  #ws { display: grid; grid-template-columns: 110px 280px 1fr; height: 100%; }
+  #ws-bar { border-right: 1px solid var(--line); padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+  #ws-bar button { border-color: transparent; background: transparent; text-align: left; }
+  #ws-bar button.active { background: var(--panel); border-color: var(--line); }
+  #ws-side { border-right: 1px solid var(--line); overflow: auto; background: var(--panel); }
+  #ws-files { padding: 8px; }
+  .side-head { color: var(--dim); font-size: 12px; margin-bottom: 6px; }
+  #ws-search { margin-bottom: 8px; }
+  #ws-tree { font: 13px/1.6 ui-monospace, monospace; }
+  #ws-tree details { padding-left: 10px; }
+  #ws-tree > details { padding-left: 0; }
+  #ws-tree summary { cursor: pointer; color: var(--dim); }
+  #ws-tree .f { padding-left: 14px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #ws-tree .f:hover { background: var(--bg); }
+  #ws-tree .f.active { background: var(--bg); color: var(--accent); }
+  .dirty { color: var(--warn) !important; }
+  #ws-main { display: flex; flex-direction: column; min-width: 0; }
+  #ws-top { display: flex; align-items: center; border-bottom: 1px solid var(--line); padding-right: 8px; }
+  #ws-tabs { display: flex; flex: 1; overflow-x: auto; }
+  .tab { display: flex; gap: 6px; align-items: center; padding: 6px 10px; border-right: 1px solid var(--line);
+    cursor: pointer; white-space: nowrap; font-size: 13px; }
+  .tab.active { background: var(--panel); }
+  .tab i { font-style: normal; color: var(--dim); }
+  .tab i:hover { color: var(--text); }
+  #ws-editor, #ws-diff { flex: 1; min-height: 0; }
+  #ws-plist .p { padding: 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  #ws-plist .p:hover, #ws-plist .p.active { background: var(--bg); }
+  #ws-plist small { color: var(--dim); display: block; }
+  .st { font-size: 11px; border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; }
+  .st.open { border-color: var(--warn); color: var(--warn); }
+  .st.merged { border-color: var(--ok); color: var(--ok); }
+  .st.rejected, .st.closed { color: var(--dim); }
+  #ws-prop { padding: 10px 14px; border-bottom: 1px solid var(--line); max-height: 45%; overflow: auto; }
+  #ws-prop .ph { display: flex; justify-content: space-between; gap: 10px; }
+  #ws-prop .pa { display: flex; gap: 6px; align-items: flex-start; }
+  #ws-prop .notes { white-space: pre-wrap; margin-top: 4px; }
+  .warn { color: var(--warn); margin-top: 8px; }
+  .small-note { font-size: 12px; margin-top: 6px; }
+  .pfiles { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+  .pfiles button.active { border-color: var(--accent); }
+  .comments { margin-top: 8px; }
+  .comments .c { padding: 4px 0; border-top: 1px solid var(--line); }
+  #comment-form { display: flex; gap: 6px; margin-top: 6px; }
+  #modal { position: fixed; inset: 0; background: #0009; display: flex; align-items: center; justify-content: center; z-index: 10; }
+  #modal form { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; width: min(520px, 92vw); }
+  #modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
   .empty { color: var(--dim); text-align: center; padding: 30px; }
 </style>
 </head>
@@ -131,7 +177,7 @@
         <a class="card" href="#todo"><b id="h-todo">0</b><span>to do</span></a>
         <a class="card" href="#todo"><b id="h-high">0</b><span>high priority</span></a>
         <a class="card" href="#done"><b id="h-done">0</b><span>done</span></a>
-        <a class="card" href="#additions"><b id="h-add">0</b><span>additions</span></a>
+        <a class="card" href="#additions"><b id="h-add">0</b><span>open proposals</span></a>
       </div>
       <div class="cols">
         <div><h3>High priority</h3><div id="home-high"></div></div>
@@ -174,20 +220,46 @@
       <div id="list-done"></div>
     </div></section>
 
-    <section id="tab-additions" class="hidden"><div class="page">
-      <form class="add" id="add-addition">
-        <input name="title" placeholder="What was added" required maxlength="200">
-        <select name="tag"></select>
-        <input name="link" placeholder="Link (optional)" type="url">
-        <textarea class="full" name="notes" placeholder="Details: block ids, files, version..."></textarea>
-        <div class="actions"><button class="primary">Add</button></div>
-      </form>
-      <div class="filters"><input data-filter="additions" placeholder="Search"><select data-tagfilter="additions"></select></div>
-      <div id="list-additions"></div>
-    </div></section>
+    <section id="tab-additions" class="hidden" style="height:100%">
+      <div id="ws">
+        <div id="ws-bar">
+          <button data-ws="files" class="active" title="Files">Files</button>
+          <button data-ws="proposals" title="Proposals">Proposals<span class="count" id="c-prop"></span></button>
+        </div>
+        <div id="ws-side">
+          <div id="ws-files">
+            <div class="side-head" id="ws-head"></div>
+            <input id="ws-search" placeholder="Filter files">
+            <div id="ws-tree"></div>
+          </div>
+          <div id="ws-props" class="hidden"><div id="ws-plist"></div></div>
+        </div>
+        <div id="ws-main">
+          <div id="ws-top">
+            <div id="ws-tabs"></div>
+            <button class="primary small" id="ws-propose" disabled>Propose changes</button>
+          </div>
+          <div id="ws-prop" class="hidden"></div>
+          <div id="ws-editor" class="hidden"></div>
+          <div id="ws-diff" class="hidden"></div>
+          <div id="ws-msg" class="empty"></div>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
+<div id="modal" class="hidden">
+  <form id="modal-form">
+    <h3 style="margin-top:0">Propose changes</h3>
+    <div id="modal-files" style="margin-bottom:10px"></div>
+    <input name="title" placeholder="Title" required maxlength="200" style="margin-bottom:8px">
+    <textarea name="notes" placeholder="What and why"></textarea>
+    <div class="actions"><button type="button" id="modal-cancel">Cancel</button><button class="primary">Send proposal</button></div>
+  </form>
+</div>
+
+<script src="code.js"></script>
 <script>
 // where the private data lives
 const OWNER = "OBS07-Lab";
@@ -320,7 +392,7 @@ function renderList(kind) {
   $(`#c-${kind}`).textContent = board[kind].length;
 }
 
-function render() { ["todo", "done", "additions"].forEach(renderList); renderHome(); }
+function render() { ["todo", "done"].forEach(renderList); renderHome(); }
 
 function renderHome() {
   const high = board.todo.filter((t) => t.prio === "high");
@@ -328,7 +400,6 @@ function renderHome() {
   $("#h-todo").textContent = board.todo.length;
   $("#h-high").textContent = high.length;
   $("#h-done").textContent = board.done.length;
-  $("#h-add").textContent = board.additions.length;
   $("#home-high").innerHTML = high.length
     ? high.map((t) => `<div class="line">${esc(t.title)}<small>${esc(t.tag)} · ${esc(t.by)}</small></div>`).join("")
     : `<div class="empty">Nothing urgent.</div>`;
@@ -355,6 +426,7 @@ function showTab(name) {
   document.querySelectorAll("main > section").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + name));
   history.replaceState(null, "", "#" + name);
   if (name === "graph" && !$("#graph-select").options.length) loadGraphs();
+  if (name === "additions") codeOpen();
 }
 
 async function loadGraphs() {
@@ -408,6 +480,7 @@ async function start() {
   try { await loadBoard(); render(); status(""); }
   catch (e) { status("Load failed: " + e.message, true); }
   loadActivity();
+  loadProposals().catch(() => {});
 }
 
 function showLogin(msg) {
@@ -443,15 +516,6 @@ $("#add-todo").onsubmit = (e) => {
   e.target.reset();
   change(`todo: ${it.title}`, (b) => b.todo.push(it));
 };
-$("#add-addition").onsubmit = (e) => {
-  e.preventDefault();
-  const f = new FormData(e.target);
-  const it = { id: uid(), title: f.get("title").trim(), notes: f.get("notes").trim(), tag: f.get("tag"),
-    link: f.get("link").trim(), by: me, created: today() };
-  e.target.reset();
-  change(`addition: ${it.title}`, (b) => b.additions.push(it));
-};
-
 document.querySelector("main").addEventListener("click", (e) => {
   const btn = e.target.closest("[data-act]");
   if (!btn) return;
@@ -486,6 +550,7 @@ document.querySelector("main").addEventListener("click", (e) => {
 });
 
 fillTagSelects();
+wireWorkspace();
 if (token) start(); else showLogin();
 </script>
 </body>
