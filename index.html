@@ -75,6 +75,19 @@
   .tag.pack { border-color: var(--ok); } .tag.other { border-color: var(--dim); }
   .prio-high { border-left: 3px solid var(--bad); }
   .done .title { text-decoration: line-through; color: var(--dim); }
+  .dim { color: var(--dim); }
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 22px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px;
+    text-decoration: none; color: var(--text); display: flex; flex-direction: column; }
+  .card:hover { border-color: var(--accent); }
+  .card b { font-size: 26px; }
+  .card span { color: var(--dim); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  h3 { font-size: 14px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; margin: 18px 0 8px; }
+  .line { padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  .line small { color: var(--dim); display: block; }
+  .links { display: flex; gap: 14px; flex-wrap: wrap; }
+  @media (max-width: 700px) { .cards { grid-template-columns: 1fr 1fr; } .cols { grid-template-columns: 1fr; } }
   .empty { color: var(--dim); text-align: center; padding: 30px; }
 </style>
 </head>
@@ -83,10 +96,13 @@
 <div id="login" class="hidden">
   <h1>OBS07 Lab</h1>
   <p>Private workspace. Sign in with a GitHub token that can read and write the lab data repo.</p>
-  <div class="row">
-    <input id="token" type="password" placeholder="github_pat_..." autocomplete="off">
-    <button class="primary" id="login-btn">Sign in</button>
-  </div>
+  <form id="login-form">
+    <input id="user" name="username" autocomplete="username" placeholder="GitHub name" style="margin-bottom:8px">
+    <div class="row">
+      <input id="token" name="password" type="password" placeholder="github_pat_..." autocomplete="current-password">
+      <button class="primary" id="login-btn">Sign in</button>
+    </div>
+  </form>
   <div id="login-error"></div>
 </div>
 
@@ -94,6 +110,7 @@
   <header>
     <h1>OBS07 Lab</h1>
     <nav>
+      <button data-tab="home">Home</button>
       <button data-tab="graph">Graph</button>
       <button data-tab="todo">To do<span class="count" id="c-todo"></span></button>
       <button data-tab="done">Done<span class="count" id="c-done"></span></button>
@@ -107,6 +124,28 @@
   </header>
 
   <main>
+    <section id="tab-home" class="hidden"><div class="page">
+      <h2 id="hello" style="margin:0 0 4px"></h2>
+      <div class="dim" id="home-sub" style="margin-bottom:18px"></div>
+      <div class="cards">
+        <a class="card" href="#todo"><b id="h-todo">0</b><span>to do</span></a>
+        <a class="card" href="#todo"><b id="h-high">0</b><span>high priority</span></a>
+        <a class="card" href="#done"><b id="h-done">0</b><span>done</span></a>
+        <a class="card" href="#additions"><b id="h-add">0</b><span>additions</span></a>
+      </div>
+      <div class="cols">
+        <div><h3>High priority</h3><div id="home-high"></div></div>
+        <div><h3>Recent activity</h3><div id="home-activity"></div></div>
+      </div>
+      <h3>Links</h3>
+      <div class="links">
+        <a href="https://github.com/Summxx/ChromaPatch" target="_blank" rel="noopener">Chroma Patch</a>
+        <a href="https://github.com/Summxx/ChromaPatch/releases/latest" target="_blank" rel="noopener">Latest release</a>
+        <a href="https://github.com/KuramA-777/GTNH-2.9.X-Shader-Edits-and-PBR-Packs" target="_blank" rel="noopener">KuramA packs</a>
+        <a href="https://github.com/OBS07-Lab/lab-data/commits/main" target="_blank" rel="noopener">Lab history</a>
+      </div>
+    </div></section>
+
     <section id="tab-graph" class="hidden" style="height:100%">
       <div id="graph-page">
         <div id="graph-bar">
@@ -231,6 +270,7 @@ async function change(message, mutate) {
       });
       boardSha = res.content.sha;
       render();
+      loadActivity();
       status("Saved");
       setTimeout(() => status(""), 1500);
       return;
@@ -280,10 +320,37 @@ function renderList(kind) {
   $(`#c-${kind}`).textContent = board[kind].length;
 }
 
-function render() { ["todo", "done", "additions"].forEach(renderList); }
+function render() { ["todo", "done", "additions"].forEach(renderList); renderHome(); }
+
+function renderHome() {
+  const high = board.todo.filter((t) => t.prio === "high");
+  $("#hello").textContent = "Hi " + me;
+  $("#h-todo").textContent = board.todo.length;
+  $("#h-high").textContent = high.length;
+  $("#h-done").textContent = board.done.length;
+  $("#h-add").textContent = board.additions.length;
+  $("#home-high").innerHTML = high.length
+    ? high.map((t) => `<div class="line">${esc(t.title)}<small>${esc(t.tag)} · ${esc(t.by)}</small></div>`).join("")
+    : `<div class="empty">Nothing urgent.</div>`;
+}
+
+async function loadActivity() {
+  try {
+    const commits = await gh(`/repos/${OWNER}/${REPO}/commits?per_page=8`);
+    $("#home-activity").innerHTML = commits.map((c) => {
+      const who = c.author ? c.author.login : c.commit.author.name;
+      const when = c.commit.author.date.slice(0, 10);
+      return `<div class="line">${esc(c.commit.message.split("\n")[0])}<small>${esc(who)} · ${esc(when)}</small></div>`;
+    }).join("");
+    const last = commits[0];
+    $("#home-sub").textContent = last ? "Last change " + last.commit.author.date.slice(0, 10) : "";
+  } catch (e) {
+    $("#home-activity").innerHTML = `<div class="empty">Could not load activity.</div>`;
+  }
+}
 
 function showTab(name) {
-  if (!["graph", "todo", "done", "additions"].includes(name)) name = "todo";
+  if (!["home", "graph", "todo", "done", "additions"].includes(name)) name = "home";
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll("main > section").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + name));
   history.replaceState(null, "", "#" + name);
@@ -328,9 +395,9 @@ async function start() {
     me = (await gh("/user")).login;
     await gh(`/repos/${OWNER}/${REPO}`);
   } catch (e) {
-    localStorage.removeItem("lab-token");
-    token = "";
-    showLogin(e.status === 401 ? "Token refused by GitHub." : "This token has no access to the lab.");
+    if (e.status === 401) { localStorage.removeItem("lab-token"); token = ""; showLogin("Token refused by GitHub (expired?)."); }
+    else if (e.status === 404 || e.status === 403) showLogin("This token has no access to the lab.");
+    else showLogin("GitHub unreachable, retry in a moment.");
     return;
   }
   $("#login").classList.add("hidden");
@@ -340,6 +407,7 @@ async function start() {
   status("Loading...");
   try { await loadBoard(); render(); status(""); }
   catch (e) { status("Load failed: " + e.message, true); }
+  loadActivity();
 }
 
 function showLogin(msg) {
@@ -348,21 +416,22 @@ function showLogin(msg) {
   $("#login-error").textContent = msg || "";
 }
 
-$("#login-btn").onclick = () => {
+$("#login-form").onsubmit = (e) => {
+  e.preventDefault();
   token = $("#token").value.trim();
   if (!token) return;
   localStorage.setItem("lab-token", token);
-  $("#token").value = "";
   start();
 };
-$("#token").onkeydown = (e) => { if (e.key === "Enter") $("#login-btn").click(); };
 $("#logout").onclick = () => { localStorage.removeItem("lab-token"); token = ""; location.hash = ""; location.reload(); };
 $("#refresh").onclick = async () => {
   status("Loading...");
   try { await loadBoard(); render(); status(""); } catch (e) { status("Load failed: " + e.message, true); }
+  loadActivity();
   if (!$("#tab-graph").classList.contains("hidden")) loadGraphs();
 };
 document.querySelectorAll("nav button").forEach((b) => b.onclick = () => showTab(b.dataset.tab));
+window.addEventListener("hashchange", () => { if (token) showTab(location.hash.slice(1)); });
 document.querySelectorAll("[data-filter], [data-tagfilter]").forEach((el) =>
   el.oninput = () => renderList(el.dataset.filter || el.dataset.tagfilter));
 
