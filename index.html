@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>OBS07 Lab</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --text: #e6e8ee; --dim: #8b93a7;
+    --accent: #8b7cf6; --ok: #3fb68b; --warn: #e0a84a; --bad: #e5534b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  input, select, textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 8px; width: 100%; }
+  textarea { resize: vertical; min-height: 60px; }
+  a { color: var(--accent); }
+  .hidden { display: none !important; }
+
+  #login { max-width: 460px; margin: 12vh auto; padding: 28px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; }
+  #login h1 { margin: 0 0 6px; font-size: 22px; }
+  #login p { color: var(--dim); margin: 6px 0 16px; }
+  #login .row { display: flex; gap: 8px; }
+  #login-error { color: var(--bad); margin-top: 10px; min-height: 1em; }
+
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { margin: 0; font-size: 16px; }
+  nav { display: flex; gap: 4px; }
+  nav button { border-color: transparent; background: transparent; }
+  nav button.active { background: var(--bg); border-color: var(--line); }
+  .count { color: var(--dim); font-size: 12px; margin-left: 4px; }
+  header .spacer { flex: 1; }
+  #who { color: var(--dim); }
+  #status { color: var(--dim); font-size: 12px; min-width: 90px; text-align: right; }
+
+  main { height: calc(100% - 53px); overflow: auto; }
+  .page { max-width: 900px; margin: 0 auto; padding: 20px 16px 60px; }
+  #graph-page { height: 100%; display: flex; flex-direction: column; }
+  #graph-bar { display: flex; gap: 8px; align-items: center; padding: 8px 16px;
+    border-bottom: 1px solid var(--line); }
+  #graph-bar select { width: auto; }
+  #graph-bar .info { color: var(--dim); font-size: 12px; }
+  #graph-frame { flex: 1; border: 0; width: 100%; background: #fff; }
+  #graph-empty { padding: 40px; color: var(--dim); text-align: center; }
+
+  form.add { display: grid; grid-template-columns: 1fr 140px 140px; gap: 8px;
+    padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 18px; }
+  form.add .full { grid-column: 1 / -1; }
+  form.add .actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+
+  .filters { display: flex; gap: 8px; margin-bottom: 12px; }
+  .filters input { flex: 1; }
+  .filters select { width: 150px; }
+
+  .item { display: flex; gap: 10px; padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 8px; margin-bottom: 8px; background: var(--panel); }
+  .item .check { width: 18px; height: 18px; margin-top: 2px; flex: none; accent-color: var(--ok); }
+  .item .body { flex: 1; min-width: 0; }
+  .item .title { font-weight: 600; word-wrap: break-word; }
+  .item .notes { color: var(--dim); white-space: pre-wrap; word-wrap: break-word; margin-top: 2px; }
+  .item .meta { color: var(--dim); font-size: 12px; margin-top: 6px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .item .tools { display: flex; gap: 4px; align-items: flex-start; }
+  .tag { border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; font-size: 12px; }
+  .tag.shader { border-color: #5b8def; } .tag.mod { border-color: var(--warn); }
+  .tag.pack { border-color: var(--ok); } .tag.other { border-color: var(--dim); }
+  .prio-high { border-left: 3px solid var(--bad); }
+  .done .title { text-decoration: line-through; color: var(--dim); }
+  .empty { color: var(--dim); text-align: center; padding: 30px; }
+</style>
+</head>
+<body>
+
+<div id="login" class="hidden">
+  <h1>OBS07 Lab</h1>
+  <p>Private workspace. Sign in with a GitHub token that can read and write the lab data repo.</p>
+  <div class="row">
+    <input id="token" type="password" placeholder="github_pat_..." autocomplete="off">
+    <button class="primary" id="login-btn">Sign in</button>
+  </div>
+  <div id="login-error"></div>
+</div>
+
+<div id="app" class="hidden" style="height:100%">
+  <header>
+    <h1>OBS07 Lab</h1>
+    <nav>
+      <button data-tab="graph">Graph</button>
+      <button data-tab="todo">To do<span class="count" id="c-todo"></span></button>
+      <button data-tab="done">Done<span class="count" id="c-done"></span></button>
+      <button data-tab="additions">Additions<span class="count" id="c-additions"></span></button>
+    </nav>
+    <div class="spacer"></div>
+    <span id="status"></span>
+    <span id="who"></span>
+    <button class="small" id="refresh">Refresh</button>
+    <button class="small" id="logout">Sign out</button>
+  </header>
+
+  <main>
+    <section id="tab-graph" class="hidden" style="height:100%">
+      <div id="graph-page">
+        <div id="graph-bar">
+          <select id="graph-select"></select>
+          <span class="info" id="graph-info"></span>
+        </div>
+        <div id="graph-empty" class="hidden">No graph published yet.</div>
+        <iframe id="graph-frame" sandbox="allow-scripts allow-popups allow-modals" title="Graph"></iframe>
+      </div>
+    </section>
+
+    <section id="tab-todo" class="hidden"><div class="page">
+      <form class="add" id="add-todo">
+        <input name="title" placeholder="New task" required maxlength="200">
+        <select name="tag"></select>
+        <select name="prio"><option value="normal">Normal</option><option value="high">High</option></select>
+        <textarea class="full" name="notes" placeholder="Notes (optional)"></textarea>
+        <div class="actions"><button class="primary">Add task</button></div>
+      </form>
+      <div class="filters"><input data-filter="todo" placeholder="Search"><select data-tagfilter="todo"></select></div>
+      <div id="list-todo"></div>
+    </div></section>
+
+    <section id="tab-done" class="hidden"><div class="page">
+      <div class="filters"><input data-filter="done" placeholder="Search"><select data-tagfilter="done"></select></div>
+      <div id="list-done"></div>
+    </div></section>
+
+    <section id="tab-additions" class="hidden"><div class="page">
+      <form class="add" id="add-addition">
+        <input name="title" placeholder="What was added" required maxlength="200">
+        <select name="tag"></select>
+        <input name="link" placeholder="Link (optional)" type="url">
+        <textarea class="full" name="notes" placeholder="Details: block ids, files, version..."></textarea>
+        <div class="actions"><button class="primary">Add</button></div>
+      </form>
+      <div class="filters"><input data-filter="additions" placeholder="Search"><select data-tagfilter="additions"></select></div>
+      <div id="list-additions"></div>
+    </div></section>
+  </main>
+</div>
+
+<script>
+// where the private data lives
+const OWNER = "OBS07-Lab";
+const REPO = "lab-data";
+const BOARD = "board.json";
+const GRAPHS = "graphs/index.json";
+const TAGS = ["shader", "mod", "pack", "other"];
+
+const API = "https://api.github.com";
+const $ = (s) => document.querySelector(s);
+let token = localStorage.getItem("lab-token") || "";
+let me = "";
+let board = { todo: [], done: [], additions: [] };
+let boardSha = null;
+let graphUrl = null;
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function status(text, bad) {
+  const el = $("#status");
+  el.textContent = text || "";
+  el.style.color = bad ? "var(--bad)" : "";
+}
+
+async function gh(path, opts = {}) {
+  const res = await fetch(API + path, {
+    ...opts,
+    cache: "no-store",
+    headers: {
+      Authorization: "Bearer " + token,
+      Accept: opts.raw ? "application/vnd.github.raw+json" : "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...(opts.body ? { "Content-Type": "application/json" } : {}),
+    },
+  });
+  if (!res.ok) {
+    const err = new Error(res.status + " " + res.statusText);
+    err.status = res.status;
+    throw err;
+  }
+  return opts.raw ? res : res.json();
+}
+
+// utf-8 safe base64
+const toB64 = (s) => {
+  const bytes = new TextEncoder().encode(s);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+};
+const fromB64 = (b) => new TextDecoder().decode(Uint8Array.from(atob(b.replace(/\n/g, "")), (c) => c.charCodeAt(0)));
+
+async function loadBoard() {
+  try {
+    const f = await gh(`/repos/${OWNER}/${REPO}/contents/${BOARD}`);
+    boardSha = f.sha;
+    board = { todo: [], done: [], additions: [], ...JSON.parse(fromB64(f.content)) };
+  } catch (e) {
+    if (e.status !== 404) throw e;
+    boardSha = null;
+    board = { todo: [], done: [], additions: [] };
+  }
+}
+
+// re-read, apply the change, write; retry if the other one saved in between
+async function change(message, mutate) {
+  status("Saving...");
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await loadBoard();
+    mutate(board);
+    try {
+      const res = await gh(`/repos/${OWNER}/${REPO}/contents/${BOARD}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          message,
+          content: toB64(JSON.stringify(board, null, 2) + "\n"),
+          ...(boardSha ? { sha: boardSha } : {}),
+        }),
+      });
+      boardSha = res.content.sha;
+      render();
+      status("Saved");
+      setTimeout(() => status(""), 1500);
+      return;
+    } catch (e) {
+      if (e.status !== 409 && e.status !== 422) { status("Save failed: " + e.message, true); render(); return; }
+    }
+  }
+  status("Save failed, refresh and retry", true);
+}
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const today = () => new Date().toISOString().slice(0, 10);
+
+function itemHtml(it, kind) {
+  const meta = [];
+  if (kind === "todo") meta.push(`added by ${esc(it.by)} on ${esc(it.created)}`);
+  if (kind === "done") meta.push(`done by ${esc(it.doneBy)} on ${esc(it.doneAt)}`, `added by ${esc(it.by)}`);
+  if (kind === "additions") meta.push(`by ${esc(it.by)} on ${esc(it.created)}`);
+  let link = "";
+  if (it.link && /^https?:\/\//i.test(it.link)) link = `<a href="${esc(it.link)}" target="_blank" rel="noopener noreferrer">link</a>`;
+  const check = kind === "additions" ? "" :
+    `<input type="checkbox" class="check" data-act="toggle" ${kind === "done" ? "checked" : ""} title="${kind === "done" ? "Back to to do" : "Mark done"}">`;
+  return `<div class="item ${kind === "done" ? "done" : ""} ${it.prio === "high" && kind === "todo" ? "prio-high" : ""}" data-id="${esc(it.id)}" data-kind="${kind}">
+    ${check}
+    <div class="body">
+      <div class="title">${esc(it.title)}</div>
+      ${it.notes ? `<div class="notes">${esc(it.notes)}</div>` : ""}
+      <div class="meta"><span class="tag ${esc(it.tag)}">${esc(it.tag)}</span>${meta.map((m) => `<span>${m}</span>`).join("")}${link}</div>
+    </div>
+    <div class="tools">
+      <button class="small" data-act="edit">Edit</button>
+      <button class="small" data-act="delete">Delete</button>
+    </div>
+  </div>`;
+}
+
+function renderList(kind) {
+  const q = ($(`[data-filter="${kind}"]`).value || "").toLowerCase();
+  const tag = $(`[data-tagfilter="${kind}"]`).value;
+  let items = board[kind].filter((it) =>
+    (!tag || it.tag === tag) &&
+    (!q || (it.title + " " + (it.notes || "")).toLowerCase().includes(q)));
+  if (kind === "todo") items = [...items].sort((a, b) => (b.prio === "high") - (a.prio === "high"));
+  else items = [...items].reverse();
+  $(`#list-${kind}`).innerHTML = items.length ? items.map((it) => itemHtml(it, kind)).join("")
+    : `<div class="empty">Nothing here.</div>`;
+  $(`#c-${kind}`).textContent = board[kind].length;
+}
+
+function render() { ["todo", "done", "additions"].forEach(renderList); }
+
+function showTab(name) {
+  if (!["graph", "todo", "done", "additions"].includes(name)) name = "todo";
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll("main > section").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + name));
+  history.replaceState(null, "", "#" + name);
+  if (name === "graph" && !$("#graph-select").options.length) loadGraphs();
+}
+
+async function loadGraphs() {
+  const sel = $("#graph-select");
+  let list = [];
+  try { list = JSON.parse(fromB64((await gh(`/repos/${OWNER}/${REPO}/contents/${GRAPHS}`)).content)); }
+  catch (e) { if (e.status !== 404) { status("Graph list: " + e.message, true); return; } }
+  $("#graph-empty").classList.toggle("hidden", list.length > 0);
+  $("#graph-frame").classList.toggle("hidden", list.length === 0);
+  sel.innerHTML = list.map((g, i) => `<option value="${i}">${esc(g.name)}</option>`).join("");
+  sel.onchange = () => showGraph(list[sel.value]);
+  if (list.length) showGraph(list[0]);
+}
+
+async function showGraph(g) {
+  $("#graph-info").textContent = "Loading...";
+  try {
+    const res = await gh(`/repos/${OWNER}/${REPO}/contents/${encodeURI(g.file)}`, { raw: true });
+    const blob = new Blob([await res.text()], { type: "text/html" });
+    if (graphUrl) URL.revokeObjectURL(graphUrl);
+    graphUrl = URL.createObjectURL(blob);
+    $("#graph-frame").src = graphUrl;
+    $("#graph-info").textContent = g.updated ? "updated " + g.updated + (g.commit ? " · " + g.commit : "") : "";
+  } catch (e) {
+    $("#graph-info").textContent = "Could not load: " + e.message;
+  }
+}
+
+function fillTagSelects() {
+  document.querySelectorAll('form.add select[name="tag"]').forEach((s) =>
+    s.innerHTML = TAGS.map((t) => `<option value="${t}">${t}</option>`).join(""));
+  document.querySelectorAll("[data-tagfilter]").forEach((s) =>
+    s.innerHTML = `<option value="">All tags</option>` + TAGS.map((t) => `<option value="${t}">${t}</option>`).join(""));
+}
+
+async function start() {
+  try {
+    me = (await gh("/user")).login;
+    await gh(`/repos/${OWNER}/${REPO}`);
+  } catch (e) {
+    localStorage.removeItem("lab-token");
+    token = "";
+    showLogin(e.status === 401 ? "Token refused by GitHub." : "This token has no access to the lab.");
+    return;
+  }
+  $("#login").classList.add("hidden");
+  $("#app").classList.remove("hidden");
+  $("#who").textContent = me;
+  showTab(location.hash.slice(1));
+  status("Loading...");
+  try { await loadBoard(); render(); status(""); }
+  catch (e) { status("Load failed: " + e.message, true); }
+}
+
+function showLogin(msg) {
+  $("#app").classList.add("hidden");
+  $("#login").classList.remove("hidden");
+  $("#login-error").textContent = msg || "";
+}
+
+$("#login-btn").onclick = () => {
+  token = $("#token").value.trim();
+  if (!token) return;
+  localStorage.setItem("lab-token", token);
+  $("#token").value = "";
+  start();
+};
+$("#token").onkeydown = (e) => { if (e.key === "Enter") $("#login-btn").click(); };
+$("#logout").onclick = () => { localStorage.removeItem("lab-token"); token = ""; location.hash = ""; location.reload(); };
+$("#refresh").onclick = async () => {
+  status("Loading...");
+  try { await loadBoard(); render(); status(""); } catch (e) { status("Load failed: " + e.message, true); }
+  if (!$("#tab-graph").classList.contains("hidden")) loadGraphs();
+};
+document.querySelectorAll("nav button").forEach((b) => b.onclick = () => showTab(b.dataset.tab));
+document.querySelectorAll("[data-filter], [data-tagfilter]").forEach((el) =>
+  el.oninput = () => renderList(el.dataset.filter || el.dataset.tagfilter));
+
+$("#add-todo").onsubmit = (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const it = { id: uid(), title: f.get("title").trim(), notes: f.get("notes").trim(), tag: f.get("tag"),
+    prio: f.get("prio"), by: me, created: today() };
+  e.target.reset();
+  change(`todo: ${it.title}`, (b) => b.todo.push(it));
+};
+$("#add-addition").onsubmit = (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const it = { id: uid(), title: f.get("title").trim(), notes: f.get("notes").trim(), tag: f.get("tag"),
+    link: f.get("link").trim(), by: me, created: today() };
+  e.target.reset();
+  change(`addition: ${it.title}`, (b) => b.additions.push(it));
+};
+
+document.querySelector("main").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const row = btn.closest(".item");
+  const { id, kind } = row.dataset;
+  const it = board[kind].find((x) => x.id === id);
+  if (!it) return;
+  const act = btn.dataset.act;
+  if (act === "toggle") {
+    const to = kind === "todo" ? "done" : "todo";
+    change(`${to === "done" ? "done" : "reopen"}: ${it.title}`, (b) => {
+      const i = b[kind].findIndex((x) => x.id === id);
+      if (i < 0) return;
+      const [moved] = b[kind].splice(i, 1);
+      if (to === "done") { moved.doneBy = me; moved.doneAt = today(); }
+      else { delete moved.doneBy; delete moved.doneAt; }
+      b[to].push(moved);
+    });
+  } else if (act === "delete") {
+    if (!confirm(`Delete "${it.title}"?`)) return;
+    change(`delete: ${it.title}`, (b) => { b[kind] = b[kind].filter((x) => x.id !== id); });
+  } else if (act === "edit") {
+    const title = prompt("Title", it.title);
+    if (title === null || !title.trim()) return;
+    const notes = prompt("Notes", it.notes || "");
+    if (notes === null) return;
+    change(`edit: ${title.trim()}`, (b) => {
+      const x = b[kind].find((y) => y.id === id);
+      if (x) { x.title = title.trim(); x.notes = notes.trim(); }
+    });
+  }
+});
+
+fillTagSelects();
+if (token) start(); else showLogin();
+</script>
+</body>
+</html>
