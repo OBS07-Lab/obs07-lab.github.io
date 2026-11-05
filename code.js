@@ -232,7 +232,7 @@ async function sendProposal(title, notes) {
 function renderProposalList() {
   $("#ws-plist").innerHTML = ws.proposals.length ? ws.proposals.map(({ data: p }) =>
     `<div class="p ${p.id === ws.current ? "active" : ""}" data-prop="${esc(p.id)}">
-      <div>${esc(p.title)}</div>
+      <div class="pt"><span>${esc(p.title)}</span>${me === ADMIN ? `<i data-pdel="${esc(p.id)}" title="Delete">×</i>` : ""}</div>
       <small><span class="st ${esc(p.status)}">${esc(p.status)}</span> ${esc(p.by)} · ${esc(p.created)} · ${p.files.length} file${p.files.length > 1 ? "s" : ""}</small>
     </div>`).join("") : `<div class="empty">No proposals yet.</div>`;
 }
@@ -352,6 +352,27 @@ async function setProposalStatus(p, statusName, reason) {
   } catch (e) { status("Save failed: " + e.message, true); }
 }
 
+async function deleteProposal(id) {
+  const entry = ws.proposals.find((x) => x.data.id === id);
+  if (!entry || me !== ADMIN) return;
+  if (!confirm(`Delete the proposal "${entry.data.title}"? This can't be undone from the site.`)) return;
+  status("Deleting...");
+  try {
+    const x = await gh(`/repos/${OWNER}/${REPO}/contents/${propPath(id)}`);
+    await gh(`/repos/${OWNER}/${REPO}/contents/${propPath(id)}`, {
+      method: "DELETE", body: JSON.stringify({ message: `delete proposal: ${entry.data.title}`, sha: x.sha }),
+    });
+    if (ws.current === id) {
+      ws.current = null;
+      const old = diffEditor && diffEditor.getModel();
+      if (old) { diffEditor.setModel(null); old.original.dispose(); old.modified.dispose(); }
+    }
+    await loadProposals();
+    showWsView("proposals");
+    status("");
+  } catch (e) { status("Delete failed: " + e.message, true); }
+}
+
 function showWsView(view) {
   ws.view = view;
   document.querySelectorAll("[data-ws]").forEach((b) => b.classList.toggle("active", b.dataset.ws === view));
@@ -392,7 +413,12 @@ function wireWorkspace() {
     sendProposal(title, f.notes.value.trim());
     f.reset();
   };
-  $("#ws-plist").onclick = (e) => { const p = e.target.closest("[data-prop]"); if (p) openProposal(p.dataset.prop); };
+  $("#ws-plist").onclick = (e) => {
+    const del = e.target.closest("[data-pdel]");
+    if (del) { e.stopPropagation(); deleteProposal(del.dataset.pdel); return; }
+    const p = e.target.closest("[data-prop]");
+    if (p) openProposal(p.dataset.prop);
+  };
   $("#ws-prop").addEventListener("click", (e) => {
     const entry = ws.proposals.find((x) => x.data.id === ws.current);
     if (!entry) return;
