@@ -448,7 +448,28 @@ async function showGraph(g) {
   $("#graph-info").textContent = "Loading...";
   try {
     const res = await gh(`/repos/${OWNER}/${REPO}/contents/${encodeURI(g.file)}`, { raw: true });
-    const blob = new Blob([await res.text()], { type: "text/html" });
+    let html = await res.text();
+    // the graph page asks its local server for code; route that to the shader repo instead
+    html = html.replace('const LIVE = location.protocol.startsWith("http");', "const LIVE = true;")
+      .replace("async function fetchText(url) {", "async function fetchText(url) { return labFetch(url); }\nasync function oldFetchText(url) {")
+      .replace("<head>", `<head><script>
+const labWait = {};
+let labN = 0;
+function labFetch(url) {
+  return new Promise((resolve, reject) => {
+    const id = ++labN;
+    labWait[id] = { resolve, reject };
+    parent.postMessage({ lab: "fetch", id, url }, "*");
+  });
+}
+addEventListener("message", (e) => {
+  const d = e.data;
+  if (!d || d.lab !== "reply" || !labWait[d.id]) return;
+  d.error ? labWait[d.id].reject(new Error(d.error)) : labWait[d.id].resolve(d.text);
+  delete labWait[d.id];
+});
+<\/script>`);
+    const blob = new Blob([html], { type: "text/html" });
     if (graphUrl) URL.revokeObjectURL(graphUrl);
     graphUrl = URL.createObjectURL(blob);
     $("#graph-frame").src = graphUrl;
@@ -457,6 +478,35 @@ async function showGraph(g) {
     $("#graph-info").textContent = "Could not load: " + e.message;
   }
 }
+
+const codeCache = {};
+async function graphFetch(url) {
+  const u = new URL(url, "http://x");
+  const path = u.searchParams.get("p") || "";
+  const repo = `/repos/${OWNER}/eclipse-obs07`;
+  if (u.pathname === "/file") {
+    const res = await gh(`${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=main`, { raw: true });
+    return res.text();
+  }
+  if (u.pathname === "/diff") {
+    const c = u.searchParams.get("c") || "";
+    if (!/^[0-9a-f]{7,40}$/.test(c)) throw new Error("not available online");
+    codeCache[c] ||= gh(`${repo}/commits/${c}`);
+    const commit = await codeCache[c];
+    const f = (commit.files || []).find((x) => x.filename === path);
+    if (!f || f.patch == null) throw new Error("no diff");
+    const old = f.previous_filename || path;
+    return `diff --git a/${old} b/${path}\n--- a/${old}\n+++ b/${path}\n${f.patch}\n`;
+  }
+  throw new Error("unknown");
+}
+window.addEventListener("message", async (e) => {
+  const frame = $("#graph-frame");
+  if (e.source !== frame.contentWindow || !e.data || e.data.lab !== "fetch") return;
+  const { id, url } = e.data;
+  try { e.source.postMessage({ lab: "reply", id, text: await graphFetch(url) }, "*"); }
+  catch (err) { e.source.postMessage({ lab: "reply", id, error: String(err.message) }, "*"); }
+});
 
 function fillTagSelects() {
   document.querySelectorAll('form.add select[name="tag"]').forEach((s) =>
