@@ -277,6 +277,7 @@
 const OWNER = "OBS07-Lab";
 const REPO = "lab-data";
 const BOARD = "board.json";
+const BOT = "https://obs07-lab-bot.summaxpro.workers.dev";
 const GRAPHS = "graphs/index.json";
 const TAGS = ["shader", "mod", "pack", "other"];
 
@@ -371,7 +372,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 function itemHtml(it, kind) {
   const meta = [];
   if (kind === "todo") meta.push(`added by ${esc(it.by)} on ${esc(it.created)}`);
-  if (kind === "done") meta.push(`done by ${esc(it.doneBy)} on ${esc(it.doneAt)}`, `added by ${esc(it.by)}`);
+  if (kind === "done") meta.push(`done by ${esc(it.doneBy)} on ${esc(it.doneAt)}`, `added by ${esc(it.by)}`, ...(it.fixed ? ["player pinged"] : []));
   if (kind === "reports") meta.push(`sent by ${esc(it.by)} on ${esc(it.created)}`, ...(it.report?.last && it.report.last !== it.created ? [`last ${esc(it.report.last)}`] : []));
   if (kind === "additions") meta.push(`by ${esc(it.by)} on ${esc(it.created)}`);
   let link = "";
@@ -387,6 +388,7 @@ function itemHtml(it, kind) {
     </div>
     <div class="tools">
       ${kind === "reports" ? `<button class="small primary" data-act="accept">Accept</button>` : ""}
+      ${it.report && kind !== "done" ? `<button class="small" data-act="fix" title="Ping the player with a message and move to Done">Fix</button>` : ""}
       <button class="small" data-act="edit">Edit</button>
       <button class="small" data-act="delete">${kind === "reports" ? "Reject" : "Delete"}</button>
     </div>
@@ -608,6 +610,11 @@ document.querySelector("main").addEventListener("click", (e) => {
       moved.acceptedBy = me;
       b.todo.push(moved);
     });
+  } else if (act === "fix") {
+    const n = it.report.from?.length || 1;
+    const msg = prompt(`Message for the ${n > 1 ? n + " players" : "player"} who reported "${it.title}"`, "Fixed in the next update, thanks for the report!");
+    if (msg === null || !msg.trim()) return;
+    fixReport(it, msg.trim());
   } else if (act === "delete") {
     const word = kind === "reports" ? "Reject" : "Delete";
     if (!confirm(`${word} "${it.title}"?`)) return;
@@ -623,6 +630,26 @@ document.querySelector("main").addEventListener("click", (e) => {
     });
   }
 });
+
+async function fixReport(it, message) {
+  status("Sending...");
+  try {
+    const res = await fetch(BOT + "/fix", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ id: it.id, message }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || res.status);
+    await loadBoard();
+    render();
+    loadActivity();
+    status(d.error || "Player pinged, moved to Done", !!d.error);
+    if (!d.error) setTimeout(() => status(""), 2500);
+  } catch (e) {
+    status("Fix failed: " + e.message, true);
+  }
+}
 
 fillTagSelects();
 wireWorkspace();
