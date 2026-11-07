@@ -73,6 +73,7 @@
   .tag { border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; font-size: 12px; }
   .tag.shader { border-color: #5b8def; } .tag.mod { border-color: var(--warn); }
   .tag.pack { border-color: var(--ok); } .tag.other { border-color: var(--dim); }
+  .tag.report { border-color: #b36bff; }
   .prio-high { border-left: 3px solid var(--bad); }
   .done .title { text-decoration: line-through; color: var(--dim); }
   .dim { color: var(--dim); }
@@ -161,6 +162,7 @@
     <nav>
       <button data-tab="home">Home</button>
       <button data-tab="graph">Graph</button>
+      <button data-tab="reports">Reports<span class="count" id="c-reports"></span></button>
       <button data-tab="todo">To do<span class="count" id="c-todo"></span></button>
       <button data-tab="done">Done<span class="count" id="c-done"></span></button>
       <button data-tab="additions">Additions<span class="count" id="c-additions"></span></button>
@@ -177,6 +179,7 @@
       <h2 id="hello" style="margin:0 0 4px"></h2>
       <div class="dim" id="home-sub" style="margin-bottom:18px"></div>
       <div class="cards">
+        <a class="card" href="#reports"><b id="h-reports">0</b><span>player reports</span></a>
         <a class="card" href="#todo"><b id="h-todo">0</b><span>to do</span></a>
         <a class="card" href="#todo"><b id="h-high">0</b><span>high priority</span></a>
         <a class="card" href="#done"><b id="h-done">0</b><span>done</span></a>
@@ -205,6 +208,12 @@
         <iframe id="graph-frame" sandbox="allow-scripts allow-popups allow-modals" title="Graph"></iframe>
       </div>
     </section>
+
+    <section id="tab-reports" class="hidden"><div class="page">
+      <div class="dim" style="margin-bottom:12px">Sent by players with /report on Discord. Accept moves a report to To do.</div>
+      <div class="filters"><input data-filter="reports" placeholder="Search"><select data-tagfilter="reports"></select></div>
+      <div id="list-reports"></div>
+    </div></section>
 
     <section id="tab-todo" class="hidden"><div class="page">
       <form class="add" id="add-todo">
@@ -275,7 +284,7 @@ const API = "https://api.github.com";
 const $ = (s) => document.querySelector(s);
 let token = localStorage.getItem("lab-token") || "";
 let me = "";
-let board = { todo: [], done: [], additions: [] };
+let board = { reports: [], todo: [], done: [], additions: [] };
 let boardSha = null;
 let graphUrl = null;
 
@@ -320,11 +329,11 @@ async function loadBoard() {
   try {
     const f = await gh(`/repos/${OWNER}/${REPO}/contents/${BOARD}`);
     boardSha = f.sha;
-    board = { todo: [], done: [], additions: [], ...JSON.parse(fromB64(f.content)) };
+    board = { reports: [], todo: [], done: [], additions: [], ...JSON.parse(fromB64(f.content)) };
   } catch (e) {
     if (e.status !== 404) throw e;
     boardSha = null;
-    board = { todo: [], done: [], additions: [] };
+    board = { reports: [], todo: [], done: [], additions: [] };
   }
 }
 
@@ -363,21 +372,23 @@ function itemHtml(it, kind) {
   const meta = [];
   if (kind === "todo") meta.push(`added by ${esc(it.by)} on ${esc(it.created)}`);
   if (kind === "done") meta.push(`done by ${esc(it.doneBy)} on ${esc(it.doneAt)}`, `added by ${esc(it.by)}`);
+  if (kind === "reports") meta.push(`sent by ${esc(it.by)} on ${esc(it.created)}`, ...(it.report?.last && it.report.last !== it.created ? [`last ${esc(it.report.last)}`] : []));
   if (kind === "additions") meta.push(`by ${esc(it.by)} on ${esc(it.created)}`);
   let link = "";
   if (it.link && /^https?:\/\//i.test(it.link)) link = `<a href="${esc(it.link)}" target="_blank" rel="noopener noreferrer">link</a>`;
-  const check = kind === "additions" ? "" :
+  const check = kind === "additions" || kind === "reports" ? "" :
     `<input type="checkbox" class="check" data-act="toggle" ${kind === "done" ? "checked" : ""} title="${kind === "done" ? "Back to to do" : "Mark done"}">`;
-  return `<div class="item ${kind === "done" ? "done" : ""} ${it.prio === "high" && kind === "todo" ? "prio-high" : ""}" data-id="${esc(it.id)}" data-kind="${kind}">
+  return `<div class="item ${kind === "done" ? "done" : ""} ${it.prio === "high" && kind !== "done" ? "prio-high" : ""}" data-id="${esc(it.id)}" data-kind="${kind}">
     ${check}
     <div class="body">
       <div class="title">${esc(it.title)}</div>
       ${it.notes ? `<div class="notes">${esc(it.notes)}</div>` : ""}
-      <div class="meta"><span class="tag ${esc(it.tag)}">${esc(it.tag)}</span>${meta.map((m) => `<span>${m}</span>`).join("")}${link}</div>
+      <div class="meta"><span class="tag ${esc(it.tag)}">${esc(it.tag)}</span>${it.report ? `<span class="tag report">player report · ${esc(it.report.type)}${it.report.votes > 1 ? ` · ${Number(it.report.votes)} players` : ""}</span>` : ""}${meta.map((m) => `<span>${m}</span>`).join("")}${link}</div>
     </div>
     <div class="tools">
+      ${kind === "reports" ? `<button class="small primary" data-act="accept">Accept</button>` : ""}
       <button class="small" data-act="edit">Edit</button>
-      <button class="small" data-act="delete">Delete</button>
+      <button class="small" data-act="delete">${kind === "reports" ? "Reject" : "Delete"}</button>
     </div>
   </div>`;
 }
@@ -387,19 +398,21 @@ function renderList(kind) {
   const tag = $(`[data-tagfilter="${kind}"]`).value;
   let items = board[kind].filter((it) =>
     (!tag || it.tag === tag) &&
-    (!q || (it.title + " " + (it.notes || "")).toLowerCase().includes(q)));
-  if (kind === "todo") items = [...items].sort((a, b) => (b.prio === "high") - (a.prio === "high"));
+    (!q || (it.title + " " + (it.notes || "") + (it.report ? " player report" : "")).toLowerCase().includes(q)));
+  if (kind !== "done") items = [...items].sort((a, b) => (b.prio === "high") - (a.prio === "high") ||
+    (b.report?.votes || 0) - (a.report?.votes || 0));
   else items = [...items].reverse();
   $(`#list-${kind}`).innerHTML = items.length ? items.map((it) => itemHtml(it, kind)).join("")
     : `<div class="empty">Nothing here.</div>`;
   $(`#c-${kind}`).textContent = board[kind].length;
 }
 
-function render() { ["todo", "done"].forEach(renderList); renderHome(); }
+function render() { ["reports", "todo", "done"].forEach(renderList); renderHome(); }
 
 function renderHome() {
   const high = board.todo.filter((t) => t.prio === "high");
   $("#hello").textContent = "Hi " + me;
+  $("#h-reports").textContent = board.reports.length;
   $("#h-todo").textContent = board.todo.length;
   $("#h-high").textContent = high.length;
   $("#h-done").textContent = board.done.length;
@@ -424,7 +437,7 @@ async function loadActivity() {
 }
 
 function showTab(name) {
-  if (!["home", "graph", "todo", "done", "additions"].includes(name)) name = "home";
+  if (!["home", "graph", "reports", "todo", "done", "additions"].includes(name)) name = "home";
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll("main > section").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + name));
   history.replaceState(null, "", "#" + name);
@@ -587,9 +600,18 @@ document.querySelector("main").addEventListener("click", (e) => {
       else { delete moved.doneBy; delete moved.doneAt; }
       b[to].push(moved);
     });
+  } else if (act === "accept") {
+    change(`accept report: ${it.title}`, (b) => {
+      const i = b.reports.findIndex((x) => x.id === id);
+      if (i < 0) return;
+      const [moved] = b.reports.splice(i, 1);
+      moved.acceptedBy = me;
+      b.todo.push(moved);
+    });
   } else if (act === "delete") {
-    if (!confirm(`Delete "${it.title}"?`)) return;
-    change(`delete: ${it.title}`, (b) => { b[kind] = b[kind].filter((x) => x.id !== id); });
+    const word = kind === "reports" ? "Reject" : "Delete";
+    if (!confirm(`${word} "${it.title}"?`)) return;
+    change(`${word.toLowerCase()}: ${it.title}`, (b) => { b[kind] = b[kind].filter((x) => x.id !== id); });
   } else if (act === "edit") {
     const title = prompt("Title", it.title);
     if (title === null || !title.trim()) return;
