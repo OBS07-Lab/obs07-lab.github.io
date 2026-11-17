@@ -138,6 +138,13 @@
   #modal { position: fixed; inset: 0; background: #0009; display: flex; align-items: center; justify-content: center; z-index: 10; }
   #modal form { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; width: min(520px, 92vw); }
   #modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+  #viewer { position: fixed; inset: 0; background: #000d; overflow: auto; z-index: 20; padding: 16px; }
+  #viewer .bar { position: sticky; top: 0; display: flex; justify-content: flex-end; z-index: 1; }
+  #viewer figure { max-width: 1100px; margin: 0 auto 22px; }
+  #viewer figcaption { color: var(--dim); font-size: 12px; margin-bottom: 6px; display: flex; gap: 12px; }
+  #viewer img { display: block; max-width: 100%; margin: 0 auto; border: 1px solid var(--line); border-radius: 6px; }
+  #viewer pre { margin: 0; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; max-height: 80vh; overflow: auto; }
   .empty { color: var(--dim); text-align: center; padding: 30px; }
 </style>
 </head>
@@ -210,7 +217,7 @@
     </section>
 
     <section id="tab-reports" class="hidden"><div class="page">
-      <div class="dim" style="margin-bottom:12px">Sent by players with /report on Discord. Accept moves a report to To do.</div>
+      <div class="dim" style="margin-bottom:12px">Sent by players with /report on Discord or the <a href="report.html" target="_blank">report page</a>. Accept moves a report to To do.</div>
       <div class="filters"><input data-filter="reports" placeholder="Search"><select data-tagfilter="reports"></select></div>
       <div id="list-reports"></div>
     </div></section>
@@ -259,6 +266,11 @@
       </div>
     </section>
   </main>
+</div>
+
+<div id="viewer" class="hidden">
+  <div class="bar"><button id="viewer-close">Close</button></div>
+  <div id="viewer-files"></div>
 </div>
 
 <div id="modal" class="hidden">
@@ -375,15 +387,18 @@ function itemHtml(it, kind) {
   if (kind === "done") meta.push(`done by ${esc(it.doneBy)} on ${esc(it.doneAt)}`, `added by ${esc(it.by)}`, ...(it.fixed ? ["player pinged"] : []));
   if (kind === "reports") meta.push(`sent by ${esc(it.by)} on ${esc(it.created)}`, ...(it.report?.last && it.report.last !== it.created ? [`last ${esc(it.report.last)}`] : []));
   if (kind === "additions") meta.push(`by ${esc(it.by)} on ${esc(it.created)}`);
+  const files = reportFiles(it);
   let link = "";
-  if (it.link && /^https?:\/\//i.test(it.link)) link = `<a href="${esc(it.link)}" target="_blank" rel="noopener noreferrer">link</a>`;
+  if (files.length) link = `<a href="#" data-act="files">${files.length} file${files.length > 1 ? "s" : ""}</a>`;
+  else if (it.link && /^https?:\/\//i.test(it.link)) link = `<a href="${esc(it.link)}" target="_blank" rel="noopener noreferrer">link</a>`;
+  const notes = String(it.notes || "").replace(FILE_URL, "").replace(/\n+(?=\n\n)/g, "").trim();
   const check = kind === "additions" || kind === "reports" ? "" :
     `<input type="checkbox" class="check" data-act="toggle" ${kind === "done" ? "checked" : ""} title="${kind === "done" ? "Back to to do" : "Mark done"}">`;
   return `<div class="item ${kind === "done" ? "done" : ""} ${it.prio === "high" && kind !== "done" ? "prio-high" : ""}" data-id="${esc(it.id)}" data-kind="${kind}">
     ${check}
     <div class="body">
       <div class="title">${esc(it.title)}</div>
-      ${it.notes ? `<div class="notes">${esc(it.notes)}</div>` : ""}
+      ${notes ? `<div class="notes">${esc(notes)}</div>` : ""}
       <div class="meta"><span class="tag ${esc(it.tag)}">${esc(it.tag)}</span>${it.report ? `<span class="tag report">player report · ${esc(it.report.type)}${it.report.votes > 1 ? ` · ${Number(it.report.votes)} players` : ""}</span>` : ""}${meta.map((m) => `<span>${m}</span>`).join("")}${link}</div>
     </div>
     <div class="tools">
@@ -394,6 +409,52 @@ function itemHtml(it, kind) {
     </div>
   </div>`;
 }
+
+// Screenshots and logs sent with a report: the notes keep their links, the page shows one "files" link.
+const FILE_URL = new RegExp(`\\n?https://github\\.com/${OWNER}/${REPO}/blob/main/(reports/[\\w.-]+)`, "g");
+const reportFiles = (it) => [...new Set([...String(it.notes || "").matchAll(FILE_URL)].map((m) => m[1]))];
+const IMAGE = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
+let viewerUrls = [];
+
+async function showFiles(paths) {
+  const box = $("#viewer-files");
+  box.innerHTML = "";
+  $("#viewer").classList.remove("hidden");
+  for (const path of paths) {
+    const fig = document.createElement("figure");
+    fig.innerHTML = `<figcaption><span>${esc(path.split("/").pop())}</span><a href="https://github.com/${OWNER}/${REPO}/blob/main/${esc(path)}" target="_blank" rel="noopener noreferrer">open on GitHub</a></figcaption>`;
+    box.append(fig);
+    try {
+      const res = await gh(`/repos/${OWNER}/${REPO}/contents/${path}`, { raw: true });
+      const type = IMAGE[path.split(".").pop().toLowerCase()];
+      if (type) {
+        const url = URL.createObjectURL(new Blob([await res.arrayBuffer()], { type }));
+        viewerUrls.push(url);
+        const img = new Image();
+        img.src = url;
+        fig.append(img);
+      } else {
+        const pre = document.createElement("pre");
+        const text = await res.text();
+        pre.textContent = text.length > 300000 ? "[...]\n" + text.slice(-300000) : text;
+        fig.append(pre);
+      }
+    } catch (e) {
+      fig.append(Object.assign(document.createElement("div"), { className: "warn", textContent: "Could not load this file: " + e.message }));
+    }
+    if ($("#viewer").classList.contains("hidden")) return;
+  }
+}
+
+function closeFiles() {
+  $("#viewer").classList.add("hidden");
+  $("#viewer-files").innerHTML = "";
+  viewerUrls.forEach((u) => URL.revokeObjectURL(u));
+  viewerUrls = [];
+}
+$("#viewer-close").onclick = closeFiles;
+$("#viewer").onclick = (e) => { if (e.target.id === "viewer" || e.target.id === "viewer-files") closeFiles(); };
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#viewer").classList.contains("hidden")) closeFiles(); });
 
 function renderList(kind) {
   const q = ($(`[data-filter="${kind}"]`).value || "").toLowerCase();
@@ -592,7 +653,10 @@ document.querySelector("main").addEventListener("click", (e) => {
   const it = board[kind].find((x) => x.id === id);
   if (!it) return;
   const act = btn.dataset.act;
-  if (act === "toggle") {
+  if (act === "files") {
+    e.preventDefault();
+    showFiles(reportFiles(it));
+  } else if (act === "toggle") {
     const to = kind === "todo" ? "done" : "todo";
     change(`${to === "done" ? "done" : "reopen"}: ${it.title}`, (b) => {
       const i = b[kind].findIndex((x) => x.id === id);
